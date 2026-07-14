@@ -1,0 +1,6 @@
+{
+  "name": "CreatorOS",
+  "description": "Convert long videos into viral short clips automatically.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
