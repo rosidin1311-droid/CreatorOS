@@ -9,6 +9,25 @@ export default function Studio() {
   const [youtubeUrl, setYoutubeUrl] = useState('');
   const [youtubeLoading, setYoutubeLoading] = useState(false);
   const [youtubeMessage, setYoutubeMessage] = useState(null);
+  
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [analysisDone, setAnalysisDone] = useState(false);
+  const [analysisProgress, setAnalysisProgress] = useState(0);
+  
+  const handleAnalyzeVideo = async () => {
+    setIsAnalyzing(true);
+    setAnalysisDone(false);
+    setAnalysisProgress(0);
+
+    for (let i = 0; i <= 100; i += 10) {
+    await new Promise((r) => setTimeout(r, 200));
+    setAnalysisProgress(i);
+  }
+
+  setIsAnalyzing(false);
+  setAnalysisDone(true);
+};
+  
   const [recentClips] = useState([
     {
       id: 1,
@@ -38,7 +57,7 @@ export default function Studio() {
 
   const fileInputRef = useRef(null);
 
-  const formatFileSize = (bytes) => {
+  const formatFileSize = (bytes: number) => {
     if (bytes === 0) return '0 Bytes';
     const k = 1024;
     const sizes = ['Bytes', 'KB', 'MB', 'GB'];
@@ -472,7 +491,68 @@ export default function Studio() {
                         ✕
                       </button>
                     </div>
+                    <div className="p-4 space-y-3">
 
+                      <h4 className="font-bold text-white break-all">
+                       {file.name}
+                      </h4>
+
+                    <div className="flex justify-between text-sm text-slate-400">
+                        <span>{file.duration}</span>
+                        <span>{file.size}</span>
+                      </div>
+                      <button
+                        onClick={handleAnalyzeVideo}
+                        disabled={isAnalyzing}
+                        className="w-full bg-cyan-600 hover:bg-cyan-500 disabled:bg-slate-700 text-white py-2 rounded-lg font-semibold transition"
+                      >
+                        {isAnalyzing
+                          ? `Analyzing... ${analysisProgress}%`
+                          : analysisDone
+                          ? "✅ Analysis Complete"
+                          : "🎬 Analyze Video"}
+                      </button>
+
+                      {analysisDone && (
+                        <div className="rounded-lg bg-slate-800 p-3 border border-cyan-500/30">
+
+                          <h4 className="font-bold text-cyan-400 mb-3">
+                            Detected Highlights
+                          </h4>
+
+                          <div className="space-y-2">
+
+                            <div className="bg-slate-900 rounded p-2 flex justify-between">
+                              <span>00:05 - 00:18</span>
+                              <span className="text-green-400">98%</span>
+                            </div>
+
+                            <div className="bg-slate-900 rounded p-2 flex justify-between">
+                              <span>00:22 - 00:35</span>
+                              <span className="text-green-400">95%</span>
+                            </div>
+
+                            <div className="bg-slate-900 rounded p-2 flex justify-between">
+                              <span>00:41 - 00:56</span>
+                              <span className="text-yellow-400">91%</span>
+                            </div>
+
+                            <div className="bg-slate-900 rounded p-2 flex justify-between">
+                              <span>01:01 - 01:12</span>
+                              <span className="text-yellow-400">88%</span>
+                            </div>
+
+                            <div className="bg-slate-900 rounded p-2 flex justify-between">
+                              <span>01:15 - 01:29</span>
+                              <span className="text-orange-400">84%</span>
+                            </div>
+
+                          </div>
+
+                        </div>
+                      )}
+
+                    </div>
                     {/* File Info */}
                     <div className="p-3 sm:p-4 space-y-2">
                       <h4 className="font-semibold text-sm sm:text-base group-hover:text-cyan-400 transition truncate">
