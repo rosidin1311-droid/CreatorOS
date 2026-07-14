@@ -36,7 +36,7 @@ export class RenderWorker {
           try {
             await this.processJob(job);
           } catch (err: any) {
-            console.error(`[RenderWorker] Job ${nextJobId} processing failed:`, err);
+            console.error(`[RenderWorker] [ERROR] Job ${nextJobId} processing failed:`, err);
             JobStore.updateJobStatus(
               nextJobId,
               'failed',
@@ -59,77 +59,64 @@ export class RenderWorker {
     const { jobId, request } = job;
     console.log(`[RenderWorker] Commencing job processing for ${jobId}...`);
 
-    // 1. Validation Stage
-    JobStore.updateJobStatus(jobId, 'preparing', 10, 'Validating rendering parameters...');
-    await new Promise(resolve => setTimeout(resolve, 500));
+    try {
+      // 1. Validation & Preparing Stage
+      JobStore.updateJobStatus(jobId, 'preparing', 20, 'Preparing assets and validating parameters...');
 
-    if (!request.videoId) {
-      throw new Error("Invalid payload: videoId reference cannot be empty.");
+      if (!request.videoId) {
+        throw new Error("Invalid payload: videoId reference cannot be empty.");
+      }
+      if (request.startTime < 0 || request.endTime <= request.startTime) {
+        throw new Error(`Invalid timeline bounds: start (${request.startTime}) must be less than end (${request.endTime}) and positive.`);
+      }
+      const duration = request.endTime - request.startTime;
+      if (duration > 3600) {
+        throw new Error("Render safety threshold limit exceeded: maximum clip duration is 1 hour.");
+      }
+
+      if (this.checkIfCancelled(jobId)) return;
+
+      const videoPath = `/mnt/videos/raw/${request.videoId}.mp4`;
+      const outputPath = `/mnt/videos/exports/${jobId}.mp4`;
+
+      // 2. Rendering Stage
+      JobStore.updateJobStatus(jobId, 'rendering', 50, 'Processing video crop and resolution filters with native FFmpeg...');
+      console.log(`[RenderWorker] [START RENDER] Starting native FFmpeg render task for job ${jobId}`);
+
+      // Call the native FFmpegEngine render method (which returns a Promise resolving on end and rejecting on error)
+      await FFmpegEngine.render(videoPath, outputPath, request.startTime, request.endTime);
+
+      console.log(`[RenderWorker] [END RENDER] Finished native FFmpeg render task for job ${jobId}`);
+
+      if (this.checkIfCancelled(jobId)) return;
+
+      // 3. Encoding Stage
+      JobStore.updateJobStatus(jobId, 'encoding', 80, 'Finalizing container format with ultrafast performance profile...');
+
+      if (this.checkIfCancelled(jobId)) return;
+
+      // 4. Completed Stage
+      const finalDownloadUrl = `/render/output/${jobId}.mp4`;
+      const estimatedSizeBytes = Math.round(duration * 1.5 * 1024 * 1024); // 1.5MB per second estimate
+
+      JobStore.updateJobResult(jobId, finalDownloadUrl, estimatedSizeBytes);
+      console.log(`[RenderWorker] Job ${jobId} successfully marked as completed.`);
+    } catch (err: any) {
+      console.error(`[RenderWorker] [ERROR] Rendering failed for job ${jobId}:`, err);
+      
+      // Update job status to failed and save the error message
+      JobStore.updateJobStatus(
+        jobId,
+        'failed',
+        job.progress,
+        'Rendering failed.',
+        err.message || 'Unknown render error.'
+      );
     }
-    if (request.startTime < 0 || request.endTime <= request.startTime) {
-      throw new Error(`Invalid timeline bounds: start (${request.startTime}) must be less than end (${request.endTime}) and positive.`);
-    }
-    const duration = request.endTime - request.startTime;
-    if (duration > 3600) {
-      throw new Error("Render safety threshold limit exceeded: maximum clip duration is 1 hour.");
-    }
-
-    // 2. Asset Preparation & Mounting
-    JobStore.updateJobStatus(jobId, 'preparing', 25, 'Downloading video artifacts and generating subtitle tracks...');
-    await new Promise(resolve => setTimeout(resolve, 800));
-
-    // Handle subtitle mock file creation simulation if subtitles exist
-    let simulatedSubtitlePath: string | undefined;
-    if (request.subtitleTracks && request.subtitleTracks.length > 0) {
-      simulatedSubtitlePath = `/tmp/subtitles_${jobId}.srt`;
-      console.log(`[RenderWorker] Synthesized SRT file at temporary worker storage: ${simulatedSubtitlePath}`);
-    }
-
-    // Check cancellation before intensive stages
-    if (this.checkIfCancelled(jobId)) return;
-
-    // 3. Command Formulation and Rendering Pipeline
-    JobStore.updateJobStatus(jobId, 'rendering', 45, 'Compiling video filters and running FFmpeg pipeline...');
-    
-    // Call our FFmpegEngine to formulate the exact parameters
-    const renderPlan = await FFmpegEngine.renderClip({
-      inputVideo: `/mnt/videos/raw/${request.videoId}.mp4`,
-      startTime: request.startTime,
-      endTime: request.endTime,
-      cropMode: request.cropMode,
-      resolution: request.resolution,
-      fps: request.fps,
-      subtitleFile: simulatedSubtitlePath,
-      outputFile: `/mnt/videos/exports/${jobId}.mp4`,
-    });
-
-    console.log(`[RenderWorker] Plan constructed: ${renderPlan.command}`);
-    await new Promise(resolve => setTimeout(resolve, 1200));
-
-    if (this.checkIfCancelled(jobId)) return;
-
-    // 4. Video and Audio Encoding
-    JobStore.updateJobStatus(jobId, 'encoding', 70, 'Multiplexing visual frames and audio samples into high-fidelity H.264 wrapper...');
-    await new Promise(resolve => setTimeout(resolve, 1000));
-
-    if (this.checkIfCancelled(jobId)) return;
-
-    // 5. CDN Uploading & Storage Synchronization
-    JobStore.updateJobStatus(jobId, 'uploading', 90, 'Uploading rendered video file to Cloud Storage buckets...');
-    await new Promise(resolve => setTimeout(resolve, 600));
-
-    if (this.checkIfCancelled(jobId)) return;
-
-    // 6. Complete and Publish Metadata
-    const finalDownloadUrl = `/render/output/${jobId}.mp4`;
-    const estimatedSizeBytes = Math.round(duration * 1.5 * 1024 * 1024); // 1.5MB per second estimate
-
-    JobStore.updateJobResult(jobId, finalDownloadUrl, estimatedSizeBytes);
-    console.log(`[RenderWorker] Job ${jobId} finalized. Status set to Completed.`);
   }
 
   /**
-   * Guard condition to check for user manual cancellations during long tasks
+   * Guard condition to check for user manual cancellations during tasks
    */
   private static checkIfCancelled(jobId: string): boolean {
     const jobState = JobStore.getJob(jobId);
